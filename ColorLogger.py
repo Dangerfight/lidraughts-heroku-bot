@@ -1,17 +1,12 @@
 """
 @file: Colorer.py
-
 Script which allows colored logging output with multiplattform support.
 The script is based on this post and was slightly adjusted:
 # https://stackoverflow.com/questions/384076/how-can-i-color-python-logging-output
-
 'Here is a solution that should work on any platform. If it doesn't just tell me and I will update it.
-
 How it works: on platform supporting ANSI escapes is using them (non-Windows) and on Windows
 it does use API calls to change the console colors.
-
 The script does hack the logging.StreamHandler.emit method from standard library adding a wrapper to it.'
-
 by Sorin & Dave
 """
 
@@ -117,7 +112,7 @@ def add_coloring_to_emit_ansi(fn):
             # #'\x1b[35m' # pink
         else:
             color = '\x1b[0m'  # normal
-        args[1].msg = color + args[1].msg + '\x1b[0m'  # normal
+        args[1].msg = f'{color}  {args[1].msg}\x1b[0m'  # normal
         # print "after"
         return fn(*args)
 
