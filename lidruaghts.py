@@ -21,8 +21,8 @@ ENDPOINTS = {
 }
 
 
-# docs: https://lichess.org/api
-class Lichess:
+# docs: https://lidraughts.org/api
+class Lidraughts:
     def __init__(self, token, url, version):
         self.version = version
         self.header = {
@@ -101,5 +101,5 @@ class Lichess:
         self.api_post(ENDPOINTS["resign"].format(game_id))
 
     def set_user_agent(self, username):
-        self.header.update({"User-Agent": "lichess-bot/{} user:{}".format(self.version, username)})
+        self.header.update({"User-Agent": "lidraughts-bot/{} user:{}".format(self.version, username)})
         self.session.headers.update(self.header)
