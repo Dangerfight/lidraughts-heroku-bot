@@ -1,9 +1,9 @@
-token: "u6DTlHCUVLhzmr9s"                  # Lichess OAuth2 Token
-url: "https://lichess.org/"  # Lichess base URL
+token: "TqdxbQ63j2y1GlYS"                  # Lichess OAuth2 Token
+url: "https://lidraughts.org/"  # Lichess base URL
 
 engine:                      # Engine settings
   dir: "./"                  # DIR containing engines, relative to this project
-  name: "stockfishmodern"    # Binary name of the engine to use
+  name: "scan.ini.exe"    # Binary name of the engine to use
   protocol: "uci"            # "uci" or "xboard"
   ponder: true               # Think on opponent time
   polyglot:
@@ -61,23 +61,22 @@ challenge:                   # Incoming challenges
   min_increment: 0           # Minimum amount of increment to accept a challenge
   max_base: 315360000        # Maximum amount of base time to accept a challenge. the max is 315360000 (10 years)
   min_base: 0                # Minimum amount of base time to accept a challenge
-  variants:                  # Chess variants to accept (http://lichess.org/variant)
+  variants:                  # Draughts variants to accept (https://lidraughts.org/variant).
     - standard
-    - fromPosition
-#   - antichess
-#   - atomic
-    - chess960
-#   - crazyhouse
-#   - horde
-#   - kingOfTheHill
-#   - racingKings
-#   - threeCheck
-  time_controls:             # Time controls to accept
+#   - fromPosition
+#   - breakthrough
+#   - antidraughts
+#   - frisian
+#   - frysk
+#   - brazilian
+#   - russian
+  time_controls:             # Time controls to accept.
+    - ultraBullet
     - bullet
     - blitz
     - rapid
-    - classical
-    - correspondence
+#   - classical
+#   - correspondence
   modes:                     # Game modes to accept
     - casual                 # Unrated games
     - rated                  # Rated games - must comment if the engine doesn't try to win
