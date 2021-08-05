@@ -1,11 +1,9 @@
 import argparse
-import chess
-from chess.variant import find_variant
-import chess.polyglot
+import draughts
 import engine_wrapper
 import model
 import json
-import lichess
+import lidraughts
 import logging
 import logging.handlers
 import multiprocessing
@@ -14,6 +12,7 @@ import signal
 import time
 import backoff
 import sys
+import threading
 from config import load_config
 from conversation import Conversation, ChatLine
 from functools import partial
@@ -112,9 +111,7 @@ def start(li, user_profile, engine_factory, config, logging_level, log_filename)
     correspondence_pinger.start()
     correspondence_queue = manager.Queue()
     correspondence_queue.put("")
-    startup_correspondence_games = [game["gameId"] for game in li.get_ongoing_games() if game["perf"] == 'correspondence']
     wait_for_correspondence_ping = False
-
     busy_processes = 0
     queued_processes = 0
 
@@ -128,6 +125,14 @@ def start(li, user_profile, engine_factory, config, logging_level, log_filename)
                 event = control_queue.get()
             except InterruptedError:
                 continue
+
+            if event.get("type") is None:
+                logger.warning("Unable to handle response from lidraughts.org:")
+                logger.warning(event)
+                if event.get("error") == "Missing scope":
+                    logger.warning('Please check that the API access token for your bot has the scope "Play games with the bot API".')
+                continue
+
             if event["type"] == "terminated":
                 break
             elif event["type"] == "local_game_done":
@@ -160,16 +165,14 @@ def start(li, user_profile, engine_factory, config, logging_level, log_filename)
                     except Exception:
                         pass
             elif event["type"] == "gameStart":
-                game_id = event["game"]["id"]
-                if game_id in startup_correspondence_games:
-                    correspondence_queue.put(game_id)
-                    startup_correspondence_games.remove(game_id)
+                if queued_processes <= 0:
+                    logger.debug("Something went wrong. Game is starting and we don't have a queued process")
                 else:
-                    if queued_processes > 0:
-                        queued_processes -= 1
-                    busy_processes += 1
-                    logger.info("--- Process Used. Total Queued: {}. Total Used: {}".format(queued_processes, busy_processes))
-                    pool.apply_async(play_game, [li, game_id, control_queue, engine_factory, user_profile, config, challenge_queue, correspondence_queue, logging_queue, game_logging_configurer, logging_level])
+                    queued_processes -= 1
+                busy_processes += 1
+                logger.info("--- Process Used. Total Queued: {}. Total Used: {}".format(queued_processes, busy_processes))
+                game_id = event["game"]["id"]
+                pool.apply_async(play_game, [li, game_id, control_queue, engine_factory, user_profile, config, challenge_queue, correspondence_queue, logging_queue, game_logging_configurer, logging_level])
 
             if event["type"] == "correspondence_ping" or (event["type"] == "local_game_done" and not wait_for_correspondence_ping):
                 if event["type"] == "correspondence_ping" and wait_for_correspondence_ping:
@@ -210,6 +213,9 @@ def start(li, user_profile, engine_factory, config, logging_level, log_filename)
     logging_listener.join()
 
 
+ponder_results = {}
+
+
 @backoff.on_exception(backoff.expo, BaseException, max_time=600, giveup=is_final)
 def play_game(li, game_id, control_queue, engine_factory, user_profile, config, challenge_queue, correspondence_queue, logging_queue, logging_configurer, logging_level):
     logging_configurer(logging_queue, logging_level)
@@ -221,9 +227,8 @@ def play_game(li, game_id, control_queue, engine_factory, user_profile, config, 
     # Initial response of stream will be the full game info. Store it
     initial_state = json.loads(next(lines).decode('utf-8'))
     game = model.Game(initial_state, user_profile["username"], li.baseUrl, config.get("abort_time", 20))
-
-    engine = engine_factory()
-    engine.get_opponent_info(game)
+    variant = parse_variant(game.variant_name)
+    engine = engine_factory(variant)
     conversation = Conversation(game, engine, li, __version__, challenge_queue)
 
     logger.info("+++ {}".format(game))
@@ -234,10 +239,15 @@ def play_game(li, game_id, control_queue, engine_factory, user_profile, config, 
 
     engine_cfg = config["engine"]
     ponder_cfg = correspondence_cfg if is_correspondence else engine_cfg
-    can_ponder = ponder_cfg.get("uci_ponder", False) or ponder_cfg.get('ponder', False)
+    can_ponder = ponder_cfg.get('ponder', False)
     move_overhead = config.get("move_overhead", 1000)
+    move_overhead_inc = config.get("move_overhead_inc", 100)
     delay_seconds = config.get("rate_limiting_delay", 0)/1000
-    polyglot_cfg = engine_cfg.get("polyglot", {})
+    board = draughts.Game(game.variant_name.lower(), game.initial_fen)
+    moves, old_moves = [], []
+
+    ponder_thread = None
+    ponder_uci = None
 
     first_move = True
     correspondence_disconnect_time = 0
@@ -255,29 +265,37 @@ def play_game(li, game_id, control_queue, engine_factory, user_profile, config, 
                 conversation.react(ChatLine(upd), game)
             elif u_type == "gameState":
                 game.state = upd
-                board = setup_board(game)
-                if not is_game_over(game) and is_engine_move(game, board):
-                    start_time = time.perf_counter_ns()
+                start_time = time.perf_counter_ns()
+                if upd["moves"] and len(upd["moves"].split()[-1]) != 4:
+                    continue
+                moves = upd["moves"].split()
+                moves_to_get = len(moves) - len(old_moves)
+                if moves_to_get > 0:
+                    for move in moves[-moves_to_get:]:
+                        board.push_move(move)
+                old_moves = moves
+
+                if not is_game_over(board) and is_engine_move(game, board):
                     fake_thinking(config, board, game)
                     print_move_number(board)
                     correspondence_disconnect_time = correspondence_cfg.get("disconnect_time", 300)
 
-                    best_move = get_book_move(board, polyglot_cfg)
-                    if best_move is None:
-                        if len(board.move_stack) < 2:
-                            best_move = choose_first_move(engine, board)
-                        elif is_correspondence:
-                            best_move = choose_move_time(engine, board, correspondence_move_time, can_ponder)
-                        else:
-                            best_move = choose_move(engine, board, game, can_ponder, start_time, move_overhead)
-                    li.make_move(game.id, best_move)
+                    if len(board.move_stack) < 2:
+                        best_move, ponder_move = choose_first_move(engine, board)
+                    elif is_correspondence:
+                        best_move, ponder_move = choose_move_time(engine, board, correspondence_move_time)
+                    else:
+                        best_move, ponder_move = get_pondering_results(ponder_thread, ponder_uci, game, board, engine)
+                        if best_move is None:
+                            best_move, ponder_move = choose_move(engine, board, game, start_time, move_overhead, move_overhead_inc)
+                    for move in best_move:
+                        li.make_move(game.id, move)
+                    ponder_thread, ponder_uci = start_pondering(engine, board, game, can_ponder, best_move, ponder_move, start_time, move_overhead, move_overhead_inc)
                     time.sleep(delay_seconds)
-                elif is_game_over(game):
-                    engine.report_game_result(game, board)
                 elif len(board.move_stack) == 0:
                     correspondence_disconnect_time = correspondence_cfg.get("disconnect_time", 300)
 
-                wb = 'w' if board.turn == chess.WHITE else 'b'
+                wb = 'w' if board.whose_turn() == draughts.WHITE else 'b'
                 game.ping(config.get("abort_time", 20), (upd[f"{wb}time"] + upd[f"{wb}inc"]) / 1000 + 60, correspondence_disconnect_time)
             elif u_type == "ping":
                 if is_correspondence and not is_engine_move(game, board) and game.should_disconnect_now():
@@ -299,8 +317,11 @@ def play_game(li, game_id, control_queue, engine_factory, user_profile, config, 
 
     engine.stop()
     engine.quit()
+    if ponder_thread is not None:
+        ponder_thread.join()
+    engine.kill_process()
 
-    if is_correspondence and not is_game_over(game):
+    if is_correspondence and not is_game_over(board):
         logger.info("--- Disconnecting from {}".format(game.url()))
         correspondence_queue.put(game_id)
     else:
@@ -309,67 +330,94 @@ def play_game(li, game_id, control_queue, engine_factory, user_profile, config, 
     control_queue.put_nowait({"type": "local_game_done"})
 
 
-def choose_move_time(engine, board, search_time, ponder):
+def parse_variant(variant):
+    variant = variant.lower()
+
+    if variant in ["standard", "fromposition"]:
+        return "normal"
+    elif variant == "breakthrough":
+        return "bt"
+    elif variant == "antidraughts":
+        return "losing"
+    elif variant == "frysk!":
+        return "frisian"
+    else:
+        return variant
+
+
+def choose_move_time(engine, board, search_time):
     logger.info("Searching for time {}".format(search_time))
-    return engine.search_for(board, search_time, ponder)
+    return engine.search_for(board, search_time)
 
 
 def choose_first_move(engine, board):
-    # need to hardcode first movetime (10000 ms) since Lichess has 30 sec limit.
-    search_time = 10000
-    logger.info("Searching for time {}".format(search_time))
-    return engine.first_search(board, search_time)
+    # need to hardcode first movetime (10000 ms) since Lidraughts has 30 sec limit.
+    return choose_move_time(engine, board, 10000)
 
 
-def get_book_move(board, polyglot_cfg):
-    if not polyglot_cfg.get("enabled") or len(board.move_stack) > polyglot_cfg.get("max_depth", 8) * 2 - 1:
-        return None
-
-    book_config = polyglot_cfg.get("book", {})
-
-    if board.uci_variant == "chess":
-        books = book_config["standard"]
-    else:
-        if book_config.get("{}".format(board.uci_variant)):
-            books = book_config["{}".format(board.uci_variant)]
-        else:
-            return None
-
-    if isinstance(books, str):
-        books = [books]
-
-    for book in books:
-        with chess.polyglot.open_reader(book) as reader:
-            try:
-                selection = polyglot_cfg.get("selection", "weighted_random")
-                if selection == "weighted_random":
-                    move = reader.weighted_choice(board).move
-                elif selection == "uniform_random":
-                    move = reader.choice(board, minimum_weight=polyglot_cfg.get("min_weight", 1)).move
-                elif selection == "best_move":
-                    move = reader.find(board, minimum_weight=polyglot_cfg.get("min_weight", 1)).move
-            except IndexError:
-                # python-chess raises "IndexError" if no entries found
-                move = None
-
-        if move is not None:
-            logger.info("Got move {} from book {}".format(move, book))
-            return move
-
-    return None
-
-
-def choose_move(engine, board, game, ponder, start_time, move_overhead):
+def choose_move(engine, board, game, start_time, move_overhead, move_overhead_inc):
     wtime = game.state["wtime"]
     btime = game.state["btime"]
+    winc = game.state["winc"]
+    binc = game.state["binc"]
     pre_move_time = int((time.perf_counter_ns() - start_time) / 1000000)
-    if board.turn == chess.WHITE:
+    if board.whose_turn() == draughts.WHITE:
         wtime = max(0, wtime - move_overhead - pre_move_time)
+        winc = max(0, winc - move_overhead_inc)
     else:
         btime = max(0, btime - move_overhead - pre_move_time)
+        binc = max(0, binc - move_overhead_inc)
 
     logger.info("Searching for wtime {} btime {}".format(wtime, btime))
-    return engine.search_with_ponder(board, wtime, btime, game.state["winc"], game.state["binc"], ponder)
+    return engine.search_with_ponder(board, wtime, btime, winc, binc, False)
+
+
+def start_pondering(engine, board, game, can_ponder, best_move, ponder_move, start_time, move_overhead, move_overhead_inc):
+    if not can_ponder or ponder_move is None:
+        return None, None
+
+    ponder_board = board.copy()
+    for move in best_move:
+        ponder_board.push_move(move)
+    for move in ponder_move:
+        ponder_board.push_move(move)
+
+    wtime = game.state["wtime"]
+    btime = game.state["btime"]
+    winc = game.state["winc"]
+    binc = game.state["binc"]
+    setup_time = int((time.perf_counter_ns() - start_time) / 1000000)
+    if board.whose_turn() == draughts.WHITE:
+        wtime = max(0, wtime - move_overhead - setup_time + winc)
+        winc = max(0, winc - move_overhead_inc)
+    else:
+        btime = max(0, btime - move_overhead - setup_time + binc)
+        binc = max(0, binc - move_overhead_inc)
+
+    def ponder_thread_func(game, engine, board, wtime, btime, winc, binc):
+        global ponder_results
+        best_move, ponder_move = engine.search_with_ponder(board, wtime, btime, winc, binc, True)
+        ponder_results[game.id] = (best_move, ponder_move)
+
+    logger.info("Pondering for wtime {} btime {}".format(wtime, btime))
+    ponder_thread = threading.Thread(target=ponder_thread_func, args=(game, engine, ponder_board, wtime, btime, winc, binc))
+    ponder_thread.start()
+    return ponder_thread, board.li_api_to_li_one(ponder_move)
+
+
+def get_pondering_results(ponder_thread, ponder_uci, game, board, engine):
+    if ponder_thread is None:
+        return None, None
+
+    move_uci = board.move_stack[-1]
+    if ponder_uci == move_uci:
+        engine.ponderhit()
+        ponder_thread.join()
+        return ponder_results[game.id]
+    else:
+        engine.stop()
+        ponder_thread.join()
+        return None, None
 
 
 def fake_thinking(config, board, game):
@@ -385,44 +433,26 @@ def print_move_number(board):
     logger.info("move: {}".format(len(board.move_stack) // 2 + 1))
 
 
-def setup_board(game):
-    if game.variant_name.lower() == "chess960":
-        board = chess.Board(game.initial_fen, chess960=True)
-    elif game.variant_name == "From Position":
-        board = chess.Board(game.initial_fen)
-    else:
-        VariantBoard = find_variant(game.variant_name)
-        board = VariantBoard()
-
-    for move in game.state["moves"].split():
-        try:
-            board.push_uci(move)
-        except ValueError as e:
-            logger.debug("Ignoring illegal move {} on board {} ({})".format(move, board.fen(), e))
-
-    return board
-
-
 def is_engine_move(game, board):
-    return game.is_white == (board.turn == chess.WHITE)
+    return game.is_white == (board.whose_turn() == draughts.WHITE)
 
 
-def is_game_over(game):
-    return game.state["status"] != "started"
+def is_game_over(board):
+    return board.is_over()
 
 
 def intro():
     return r"""
     .   _/|
     .  // o\
-    .  || ._)  lichess-bot %s
+    .  || ._)  lidraughts-bot %s
     .  //__\
-    .  )___(   Play on Lichess with a bot
+    .  )___(   Play on Lidraughts with a bot
     """ % __version__
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Play on Lichess with a bot')
+    parser = argparse.ArgumentParser(description='Play on Lidraughts with a bot')
     parser.add_argument('-u', action='store_true', help='Add this flag to upgrade your account to a bot account.')
     parser.add_argument('-v', action='store_true', help='Verbose output. Changes log level from INFO to DEBUG.')
     parser.add_argument('--config', help='Specify a configuration file (defaults to ./config.yml)')
@@ -435,7 +465,7 @@ if __name__ == "__main__":
     enable_color_logging(debug_lvl=logging_level)
     logger.info(intro())
     CONFIG = load_config(args.config or "./config.yml")
-    li = lichess.Lichess(CONFIG["token"], CONFIG["url"], __version__)
+    li = lidraughts.Lidraughts(CONFIG["token"], CONFIG["url"], __version__)
 
     user_profile = li.get_profile()
     username = user_profile["username"]
