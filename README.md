@@ -1,9 +1,9 @@
-# MAINTAINER [ChessGreatPlayer](https://lichess.org/@/ChessGreatPlayer)
+# MAINTAINER [UnknownStrongPlayer](https://lidraughts.org/@/UnknownStrongPlayer)
 
 
-# lichess-bot
+# lidraughts-bot
 
-- A bridge between [Lichess API](https://lichess.org/api#tag/Bot) and bots.
+- A bridge between [Lidraughts API](https://lidraughts.org/api#tag/Bot) and bots.
 - This bot is using Docker and concentrated on Heroku server.
 
 ## How to Install In Heroku
@@ -18,13 +18,10 @@
 ## INFO 
 
 ENGINE:
-- STOCKFISH 13 SSE4.1 + POPCNT
+- SCAN
 
-OPENING BOOKS: 
-- Goi5.1.bin
-- Drawkiller_EloZoom_big.bin
 
-**If you want to run bot localy on PC, read the [lichess-bot manual](https://github.com/ShailChoksi/lichess-bot#lichess-bot).**
+**If you want to run bot localy on PC, read the [lidraughts-bot manual](https://github.com/AttackingOrDefending/lidraughts-bot).**
 
 ### Acknowledgements
-Credits to [ShailChoksi](https://github.com/ShailChoksi/lichess-bot)'s lichess-bot 
+Credits to [AttackingOrDefending](https://github.com/AttackingOrDefending/lidraughts-bot)'s lidraughts-bot 
