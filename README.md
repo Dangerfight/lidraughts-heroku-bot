@@ -1,7 +1,7 @@
-# MAINTAINER [OIVAS7572](https://github.com/OIVAS7572)
+# MAINTAINER [ChessGreatPlayer](https://lichess.org/@/ChessGreatPlayer)
 
-[![Python](https://github.com/OIVAS7572/lichess-bot/actions/workflows/Python.yml/badge.svg)](https://github.com/OIVAS7572/lichess-bot/actions/workflows/Python.yml)
-[![Docker](https://github.com/OIVAS7572/lichess-bot/actions/workflows/Docker.yml/badge.svg)](https://github.com/OIVAS7572/lichess-bot/actions/workflows/Docker.yml)
+[![Python](https://github.com/SathyaKarthik1212/lichess-chess-bot/actions/workflows/Python.yml)
+[![Docker](https://github.com/SathyaKarthik1212/lichess-chess-bot/actions/workflows/Docker.yml)
 
 # lichess-bot
 
