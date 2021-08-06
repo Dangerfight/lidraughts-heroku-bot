@@ -22,7 +22,7 @@ RUN echo OIVAS7572 | sudo -S apt install python3-pip -y
 COPY requirements.txt .
 RUN echo OIVAS7572 | sudo -S python3 -m pip install --no-cache-dir -r requirements.txt
 
-RUN echo OIVAS7572 | sudo -S chmod +x stockfishmodern
+RUN echo OIVAS7572 | sudo -S chmod +x scan.ini.exe
 #                   Engine is here    ^^^^^^^^^^^^^^^
 #RUN echo OIVAS7572 | sudo -S apt-get install -y libopenblas-dev
 #If you want to use Lc0 uncomment 29th line (Remove Hash at start of 29th line)
