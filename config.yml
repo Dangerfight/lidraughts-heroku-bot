@@ -1,5 +1,5 @@
-token: "TqdxbQ63j2y1GlYS"                  # Lichess OAuth2 Token
-url: "https://lidraughts.org/"  # Lichess base URL
+token: "TqdxbQ63j2y1GlYS"                  # Lidraughts OAuth2 Token
+url: "https://lidraughts.org/"  # Lidraughts base URL
 
 engine:                      # Engine settings
   dir: "./"                  # DIR containing engines, relative to this project
