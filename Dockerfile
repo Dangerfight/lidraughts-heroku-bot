@@ -13,10 +13,10 @@ ADD /engine/ .
 #If you want to run any other commands use "RUN echo OIVAS7572 | sudo -S" before
 
 RUN echo OIVAS7572 | sudo -S apt-get install -y wget
-RUN echo OIVAS7572 | sudo -S apt install p7zip-full -y
-RUN echo OIVAS7572 | sudo -S wget -U "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36" --no-check-certificate "https://gitlab.com/OIVAS7572/Goi5.1.bin/-/raw/master/Goi5.1.bin.7z" -O Goi5.1.bin.7z
-RUN echo OIVAS7572 | sudo -S 7z e Goi5.1.bin.7z
-RUN echo OIVAS7572 | sudo -S rm Goi5.1.bin.7z
+#RUN echo OIVAS7572 | sudo -S apt install p7zip-full -y
+#RUN echo OIVAS7572 | sudo -S wget -U "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36" --no-check-certificate "https://gitlab.com/OIVAS7572/Goi5.1.bin/-/raw/master/Goi5.1.bin.7z" -O Goi5.1.bin.7z
+#RUN echo OIVAS7572 | sudo -S 7z e Goi5.1.bin.7z
+#RUN echo OIVAS7572 | sudo -S rm Goi5.1.bin.7z
 RUN echo OIVAS7572 | sudo -S apt-get install -y python3 python3-pip
 RUN echo OIVAS7572 | sudo -S apt install python3-pip -y
 COPY requirements.txt .
