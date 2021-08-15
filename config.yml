@@ -3,7 +3,7 @@ url: "https://lidraughts.org/"  # Lidraughts base URL
 
 engine:                      # Engine settings
   dir: "./"                  # DIR containing engines, relative to this project
-  name: "scan.ini.exe"    # Binary name of the engine to use
+  name: "scan_linux"    # Binary name of the engine to use
   protocol: "uci"            # "uci" or "xboard"
   ponder: true               # Think on opponent time
   polyglot:
